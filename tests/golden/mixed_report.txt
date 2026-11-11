@@ -1,0 +1,9 @@
+chesterton: 1 block, 1 warn, 0 allow
+
+BLOCK  81.5  billing.py:21-22  charge  [deletion]
+  Added for an incident or security issue: b7eec8b on 2024-01-15, "Fix duplicate charges during gateway outage (INC-412)".
+  commit:b7eec8b74cad  2024-01-15  Fix duplicate charges during gateway outage (INC-412)  (incident_or_security, fix_surgical)
+
+WARN  55  retry.py:21-22  charge  [deletion]
+  Added by a small bug fix: 1c8d52a on 2024-01-15, "Fix crash when gateway returns an empty body".
+  commit:1c8d52a4875c  2024-01-15  Fix crash when gateway returns an empty body  (fix_surgical)
