@@ -1,8 +1,6 @@
 """Turn scores into verdicts and verdicts into exit codes."""
 
-from enum import StrEnum
-
-from chesterton.config import Thresholds
+from chesterton.config import Mode, Thresholds
 from chesterton.models import Finding, Verdict
 
 EXIT_OK = 0
@@ -11,18 +9,15 @@ EXIT_STRICT_WARN = 2
 EXIT_TOOL_ERROR = 3
 
 
-class Mode(StrEnum):
-    advisory = "advisory"
-    standard = "standard"
-    strict = "strict"
-
-
-def decide(score: float, thresholds: Thresholds) -> Verdict:
+def decide(score: float, thresholds: Thresholds, floor: Verdict | None = None) -> Verdict:
+    """Verdict from the score, raised to `floor` when a fence registry entry demands it."""
     if score >= thresholds.block:
-        return Verdict.block
-    if score >= thresholds.warn:
-        return Verdict.warn
-    return Verdict.allow
+        verdict = Verdict.block
+    elif score >= thresholds.warn:
+        verdict = Verdict.warn
+    else:
+        verdict = Verdict.allow
+    return floor if floor is not None and floor.rank > verdict.rank else verdict
 
 
 def exit_code(findings: list[Finding], mode: Mode) -> int:

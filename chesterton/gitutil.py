@@ -20,19 +20,23 @@ class Git:
         probe = cls(cwd)
         return cls(Path(probe.text("rev-parse", "--show-toplevel").strip()))
 
-    def run(self, *args: str, stdin: bytes | None = None) -> bytes:
+    def run(self, *args: str, stdin: bytes | None = None, ok_codes: tuple[int, ...] = (0,)) -> bytes:
         cmd = ["git", "-C", str(self.root), "-c", "core.quotePath=false", *args]
         try:
             proc = subprocess.run(cmd, input=stdin, capture_output=True, env=self._env)
         except OSError as exc:
             raise GitError(f"could not run git: {exc}") from exc
-        if proc.returncode != 0:
+        if proc.returncode not in ok_codes:
             detail = proc.stderr.decode("utf-8", "replace").strip()
             raise GitError(f"git {args[0]} failed: {detail}")
         return proc.stdout
 
-    def text(self, *args: str, stdin: bytes | None = None) -> str:
-        return self.run(*args, stdin=stdin).decode("utf-8", "replace")
+    def text(self, *args: str, stdin: bytes | None = None, ok_codes: tuple[int, ...] = (0,)) -> str:
+        return self.run(*args, stdin=stdin, ok_codes=ok_codes).decode("utf-8", "replace")
+
+    def common_dir(self) -> Path:
+        path = Path(self.text("rev-parse", "--git-common-dir").strip())
+        return path if path.is_absolute() else self.root / path
 
     def rev(self, ref: str) -> str:
         try:

@@ -42,7 +42,9 @@ _GRAMMARS = {
     "cpp": ("tree_sitter_cpp", "language"),
 }
 
-_JS_FUNCTIONS = {"function_declaration", "generator_function_declaration", "method_definition"}
+# Named function expressions cover the `res.send = function send() {}` style.
+# Anonymous ones have no name and are skipped.
+_JS_FUNCTIONS = {"function_declaration", "generator_function_declaration", "method_definition", "function_expression"}
 _JS_TYPES = {"class_declaration"}
 _C_FUNCTIONS = {"function_definition"}
 _C_TYPES = {"struct_specifier", "union_specifier", "enum_specifier"}

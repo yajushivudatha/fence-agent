@@ -56,12 +56,12 @@ def load_commits(git: Git, shas: set[str]) -> dict[str, CommitInfo]:
     return commits
 
 
-def lines_removed_by(git: Git, sha: str) -> set[str]:
-    """Normalized meaningful lines a commit deleted. Empty if it can't be read."""
+def lines_removed_by(git: Git, sha: str) -> set[str] | None:
+    """Normalized meaningful lines a commit deleted, or None if it can't be read."""
     try:
         patch = git.run("show", "--format=", "-U0", "--no-color", "--no-ext-diff", "--no-renames", sha)
     except GitError:
-        return set()
+        return None
     removed = (normalize(line) for f in parse_patch(patch) for h in f.hunks for line in h.removed)
     return {line for line in removed if is_meaningful(line)}
 
@@ -70,3 +70,14 @@ def range_authors(git: Git, rev: str, path: str, start: int, end: int) -> set[st
     """Everyone who has touched these lines over their full history."""
     output = git.text("log", "-L", f"{start},{end}:{path}", "-s", "--format=%ae", rev)
     return {line.strip().lower() for line in output.split("\n") if line.strip()}
+
+
+def range_history(git: Git, rev: str, path: str, start: int, end: int, limit: int) -> list[tuple[str, int, str, str]]:
+    """The newest commits that touched these lines: (sha, time, author name, subject)."""
+    output = git.text("log", f"-n{limit}", "-L", f"{start},{end}:{path}", "-s", "--format=%H%x00%ct%x00%an%x00%s", rev)
+    entries = []
+    for line in output.split("\n"):
+        fields = line.split("\x00")
+        if len(fields) == 4:
+            entries.append((fields[0], int(fields[1]), fields[2], fields[3]))
+    return entries

@@ -1,6 +1,7 @@
 """Read intent out of commit messages."""
 
 import re
+from collections.abc import Mapping
 
 _F = re.IGNORECASE
 
@@ -32,9 +33,9 @@ def _prose(message: str) -> str:
     return _PERSON_TRAILER.sub("", message)
 
 
-def keyword_classes(message: str) -> set[str]:
+def keyword_classes(message: str, keywords: Mapping[str, re.Pattern[str]] = KEYWORDS) -> set[str]:
     text = _prose(message)
-    return {name for name, pattern in KEYWORDS.items() if pattern.search(text)}
+    return {name for name, pattern in keywords.items() if pattern.search(text)}
 
 
 def is_trivial_fix(subject: str) -> bool:

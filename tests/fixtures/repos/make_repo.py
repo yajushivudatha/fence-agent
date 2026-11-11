@@ -263,6 +263,81 @@ def mixed_report(repo: Repo) -> None:
     repo.stage()
 
 
+def _rooted(repo: Repo, text: str, files: dict[str, str] | None = None) -> None:
+    """A first commit elsewhere, so billing.py's origin is not the bulk root commit."""
+    repo.write("README.txt", "billing service\n")
+    repo.commit("Initial commit", date="2023-12-01T12:00:00Z")
+    repo.write("billing.py", text)
+    for name, content in (files or {}).items():
+        repo.write(name, content)
+    repo.commit("Add billing module", date="2024-01-01T12:00:00Z")
+
+
+def _remove_guard(repo: Repo) -> None:
+    current = (repo.path / "billing.py").read_text()
+    repo.write("billing.py", current.replace(GUARD, ""))
+    repo.stage()
+
+
+def _with_comment(comment: str) -> str:
+    return _padding(3) + CHARGE_GUARDED.replace(GUARD, f"    # {comment}\n" + GUARD)
+
+
+def comment_keep(repo: Repo) -> None:
+    _rooted(repo, _with_comment("Do not remove: the gateway returns None during failover."))
+    _remove_guard(repo)
+
+
+def comment_note(repo: Repo) -> None:
+    _rooted(repo, _with_comment("NOTE: the gateway can return None."))
+    _remove_guard(repo)
+
+
+def suppression(repo: Repo) -> None:
+    noisy = CHARGE.replace("    tax = order.tax\n", "    tax = order.tax  # noqa: F841\n")
+    _rooted(repo, _padding(3) + noisy)
+    repo.write("billing.py", _padding(3) + CHARGE)
+    repo.stage()
+
+
+def tested_symbol(repo: Repo) -> None:
+    _rooted(repo, _padding(3) + CHARGE_GUARDED, {"tests/test_billing.py": "def test_empty():\n    charge(order)\n"})
+    _remove_guard(repo)
+
+
+def _fence(level: str = "block", symbol: str = "charge") -> str:
+    return f'- path: billing.py\n  symbol: {symbol}\n  reason: "Gateway failover returns None, see INC-412"\n  level: {level}\n'
+
+
+def registry_block(repo: Repo) -> None:
+    _rooted(repo, _padding(3) + CHARGE_GUARDED, {".fences.yml": _fence()})
+    _remove_guard(repo)
+
+
+def registry_warn(repo: Repo) -> None:
+    _rooted(repo, _padding(3) + CHARGE_GUARDED, {".fences.yml": _fence("warn")})
+    _remove_guard(repo)
+
+
+def registry_removed_in_same_change(repo: Repo) -> None:
+    _rooted(repo, _padding(3) + CHARGE_GUARDED, {".fences.yml": _fence()})
+    repo.write(".fences.yml", "[]\n")
+    _remove_guard(repo)
+
+
+def registry_overlap(repo: Repo) -> None:
+    _rooted(repo, _padding(3) + CHARGE_GUARDED, {".fences.yml": _fence()})
+    repo.write("billing.py", _padding(2))
+    repo.stage()
+
+
+def registry_moved(repo: Repo) -> None:
+    _rooted(repo, _padding(3) + CHARGE_GUARDED, {".fences.yml": _fence()})
+    repo.write("billing.py", _padding(3))
+    repo.write("payments.py", "import gateway\n\n\n" + CHARGE_GUARDED)
+    repo.stage()
+
+
 @dataclass(frozen=True)
 class Scenario:
     build: Callable[[Repo], None]
@@ -293,6 +368,15 @@ SCENARIOS: dict[str, Scenario] = {
     "bulk_origin": Scenario(bulk_origin, "allow", "deletion", 32.5, _s("incident_or_security")),
     "old_many_authors": Scenario(old_many_authors, "allow", "deletion", 15, _s("old_many_authors")),
     "rewrite_keeps_guard": Scenario(rewrite_keeps_guard, "warn", "modification", 55, _s("fix_surgical"), rewrite=True),
+    "comment_keep": Scenario(comment_keep, "warn", "deletion", 70, _s("do_not_remove_comment")),
+    "comment_note": Scenario(comment_note, "allow", "deletion", 30, _s("explanatory_comment")),
+    "suppression": Scenario(suppression, "allow", "modification", 35, _s("suppression")),
+    "tested_symbol": Scenario(tested_symbol, "allow", "deletion", 30, _s("tested")),
+    "registry_block": Scenario(registry_block, "block", "deletion", 100, _s("fence_registry")),
+    "registry_warn": Scenario(registry_warn, "warn", "deletion", 40, _s("fence_registry_warn")),
+    "registry_removed_in_same_change": Scenario(registry_removed_in_same_change, "block", "deletion", 100, _s("fence_registry")),
+    "registry_overlap": Scenario(registry_overlap, "block", "deletion", 100, _s("fence_registry")),
+    "registry_moved": Scenario(registry_moved, "allow", "move", 10, _s("fence_registry")),
 }
 
 

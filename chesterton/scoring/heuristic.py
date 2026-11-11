@@ -1,6 +1,7 @@
 """Deterministic risk score for one hunk."""
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from chesterton.diff.moves import is_meaningful, normalize
@@ -40,8 +41,13 @@ def _restores_lines(hunk: Hunk, removed_by_target: set[str]) -> bool:
     return any(is_meaningful(n) and n in removed_by_target for n in map(normalize, hunk.removed_lines))
 
 
-def commit_signals(commit: CommitInfo, hunk: Hunk, removed_by_target: set[str]) -> set[str]:
-    classes = signals.keyword_classes(commit.message)
+def commit_signals(
+    commit: CommitInfo,
+    hunk: Hunk,
+    removed_by_target: set[str],
+    keywords: Mapping[str, re.Pattern[str]] = signals.KEYWORDS,
+) -> set[str]:
+    classes = signals.keyword_classes(commit.message, keywords)
     found: set[str] = set()
     if classes & {"incident", "security"}:
         found.add(w.INCIDENT_OR_SECURITY)
@@ -55,65 +61,69 @@ def commit_signals(commit: CommitInfo, hunk: Hunk, removed_by_target: set[str]) 
     return found
 
 
-def _is_long_lived(origins: list[CommitInfo], authors: set[str], reference_time: int) -> bool:
-    oldest = min(c.committed_at for c in origins)
-    return reference_time - oldest >= w.OLD_CODE_SECONDS and len(authors) >= w.OLD_CODE_MIN_AUTHORS
-
-
 def needs_author_history(origins: list[CommitInfo], reference_time: int) -> bool:
     """Whether the code is old enough for its author count to matter."""
     return bool(origins) and reference_time - min(c.committed_at for c in origins) >= w.OLD_CODE_SECONDS
 
 
-def _evidence(commit: CommitInfo, names: set[str]) -> Evidence:
-    ordered = sorted(names, key=lambda n: (-w.WEIGHTS[n], n))
+def _commit_evidence(commit: CommitInfo, names: set[str], weights: Mapping[str, int]) -> Evidence:
+    ordered = sorted(names, key=lambda n: (-weights[n], n))
     return Evidence(
         id=f"commit:{commit.sha[:12]}",
         type=EvidenceType.commit,
         ref=commit.sha,
         excerpt=commit.message[:_EXCERPT_CHARS],
         signals=ordered,
-        weight=w.WEIGHTS[ordered[0]],
+        weight=weights[ordered[0]],
         committed_at=commit.committed_at,
     )
 
 
-def score_hunk(
+def commit_evidence(
     hunk: Hunk,
     origins: list[CommitInfo],
-    removed_by_revert_target: dict[str, set[str]],
+    removed_by_revert_target: Mapping[str, set[str]],
     authors: set[str],
     reference_time: int,
-) -> ScoredHunk:
-    """Score a hunk from its origin commits.
+    weights: Mapping[str, int] = w.WEIGHTS,
+    keywords: Mapping[str, re.Pattern[str]] = signals.KEYWORDS,
+) -> list[Evidence]:
+    """Evidence from the commits that wrote the hunk's lines.
 
-    Each signal counts once however many commits show it, so one long history
-    of similar commits cannot inflate the score. Ages are measured from
-    `reference_time`, the base commit's date, which keeps results reproducible.
+    Ages are measured from `reference_time`, the base commit's date, which
+    keeps results reproducible.
     """
     by_commit: dict[str, set[str]] = {}
     for commit in origins:
         target = signals.revert_target(commit.message)
         removed = removed_by_revert_target.get(target, set()) if target else set()
-        found = commit_signals(commit, hunk, removed)
+        found = commit_signals(commit, hunk, removed, keywords)
         if found:
             by_commit[commit.sha] = found
-    if origins and _is_long_lived(origins, authors, reference_time):
+    if needs_author_history(origins, reference_time) and len(authors) >= w.OLD_CODE_MIN_AUTHORS:
         oldest = min(origins, key=lambda c: c.committed_at)
         by_commit.setdefault(oldest.sha, set()).add(w.OLD_MANY_AUTHORS)
+    commits = {c.sha: c for c in origins}
+    return [_commit_evidence(commits[sha], names, weights) for sha, names in by_commit.items()]
 
-    distinct = set().union(*by_commit.values()) if by_commit else set()
-    score = combine([w.WEIGHTS[name] for name in distinct])
+
+def score(
+    hunk: Hunk,
+    evidence: list[Evidence],
+    origins: list[CommitInfo],
+    weights: Mapping[str, int] = w.WEIGHTS,
+) -> ScoredHunk:
+    """Combine all evidence for a hunk. Each kind of signal counts once."""
+    distinct = {name for item in evidence for name in item.signals}
+    value = combine([weights[name] for name in distinct])
 
     modifiers: list[str] = []
     if hunk.kind is HunkKind.move:
-        score *= w.MODIFIER_MOVE
+        value *= w.MODIFIER_MOVE
         modifiers.append("moved")
     if origins and all(is_bulk(c) for c in origins):
-        score *= w.MODIFIER_BULK
+        value *= w.MODIFIER_BULK
         modifiers.append("bulk_origin")
 
-    commits = {c.sha: c for c in origins}
-    evidence = [_evidence(commits[sha], names) for sha, names in by_commit.items()]
-    evidence.sort(key=lambda e: (-e.weight, e.ref))
-    return ScoredHunk(round(score, 1), evidence, modifiers)
+    ranked = sorted(evidence, key=lambda e: (-e.weight, e.id))
+    return ScoredHunk(round(value, 1), ranked, modifiers)

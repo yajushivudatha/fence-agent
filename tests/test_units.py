@@ -181,6 +181,7 @@ def test_porcelain_counts_repeat_headers():
         ("python", b"class A:\n    def f(self):\n        return 1\n", 3, "A.f"),
         ("python", b"class A:\n    @staticmethod\n    def f():\n        return 1\n", 2, "A.f"),
         ("javascript", b"const f = () => {\n  return 1;\n};\n", 2, "f"),
+        ("javascript", b"res.send = function send(body) {\n  return 1;\n};\n", 2, "send"),
         ("typescript", b"class A {\n  m(): number {\n    return 1;\n  }\n}\n", 3, "A.m"),
         ("tsx", b"function App() {\n  return <div />;\n}\n", 2, "App"),
         ("go", b"package p\n\nfunc (t T) Do() int {\n\treturn 1\n}\n", 4, "Do"),

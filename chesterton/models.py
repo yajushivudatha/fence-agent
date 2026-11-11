@@ -15,12 +15,20 @@ class HunkKind(StrEnum):
 
 class EvidenceType(StrEnum):
     commit = "commit"
+    comment = "comment"
+    test = "test"
+    registry = "registry"
+    suppression = "suppression"
 
 
 class Verdict(StrEnum):
     allow = "allow"
     warn = "warn"
     block = "block"
+
+    @property
+    def rank(self) -> int:
+        return list(Verdict).index(self)
 
 
 class Hunk(BaseModel):
@@ -55,7 +63,8 @@ class Evidence(BaseModel):
     excerpt: str
     signals: list[str]
     weight: int
-    committed_at: int
+    committed_at: int | None = None
+    line: int | None = None
 
 
 class Finding(BaseModel):
@@ -81,6 +90,8 @@ class Stats(BaseModel):
     skipped_oversize: int = 0
     blame_failures: int = 0
     origin_commits: int = 0
+    cache_hits: int = 0
+    cache_misses: int = 0
 
 
 class Report(BaseModel):
@@ -91,3 +102,24 @@ class Report(BaseModel):
     notes: list[str] = Field(default_factory=list)
     stats: Stats = Field(default_factory=Stats)
     tool_version: str
+
+
+class HistoryEntry(BaseModel):
+    sha: str
+    committed_at: int
+    author: str
+    subject: str
+
+
+class Explanation(BaseModel):
+    """Why a range of lines exists, phrased as: what if you removed it?"""
+
+    path: str
+    start: int
+    end: int
+    rev: str
+    lines: list[str]
+    finding: Finding
+    history: list[HistoryEntry]
+    uncommitted_changes: bool
+    notes: list[str] = Field(default_factory=list)
